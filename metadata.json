@@ -1,0 +1,8 @@
+{
+  "name": "SG Air & Weather Monitor",
+  "description": "Real-time NEA air quality, PSI, PM 2.5, temperature and humidity monitoring for Singapore with interactive charts, health advisories, dynamic skyline, and API health status.",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
