@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import healthHandler from './api/health.js';
+import { handleTokenRequest, handleTileProxy } from './api/onemap.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,6 +15,10 @@ app.use(express.json());
 // API Health monitor routes (both /api/health and /api/health.js)
 app.get('/api/health', healthHandler);
 app.get('/api/health.js', healthHandler);
+
+// OneMap API token and tile proxy routes
+app.get('/api/onemap/token', handleTokenRequest);
+app.get('/api/onemap/tile/:style/:z/:x/:y', handleTileProxy);
 
 // Proxy route for NEA APIs to bypass any browser client limitations and provide unified caching
 const NEA_BASE = 'https://api-open.data.gov.sg/v2/real-time/api';

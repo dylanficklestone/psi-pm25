@@ -25,6 +25,7 @@ import { LocationSelector } from './components/LocationSelector';
 import { HealthAdvisory } from './components/HealthAdvisory';
 import { ApiHealthModal } from './components/ApiHealthModal';
 import { AtmosphereControls } from './components/AtmosphereControls';
+import { GeographicalMap } from './components/GeographicalMap';
 
 import {
   Wind,
@@ -236,6 +237,9 @@ export default function App() {
             <a href="#metrics" className="hover:text-white transition-colors">
               Readings
             </a>
+            <a href="#map" className="hover:text-white transition-colors">
+              Geo Map
+            </a>
             <a href="#trends" className="hover:text-white transition-colors">
               Diurnal Trends
             </a>
@@ -392,6 +396,21 @@ export default function App() {
               accentColor="#06b6d4"
             />
           </div>
+        </section>
+
+        {/* Geographical Telemetry Map (Integrated with OneMap API) */}
+        <section id="map">
+          <GeographicalMap
+            selectedRegion={selectedRegion}
+            onSelectRegion={setSelectedRegion}
+            stations={neaData?.temperatureData.stations || []}
+            selectedStationId={selectedStationId}
+            onSelectStation={setSelectedStationId}
+            latestReadings={latestReadings}
+            stationTempData={neaData?.temperatureData.readings?.[0]?.data || []}
+            stationHumData={neaData?.humidityData.readings?.[0]?.data || []}
+            locationResult={locationResult}
+          />
         </section>
 
         {/* 1) Interactive Charts Section */}
