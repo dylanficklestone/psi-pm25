@@ -1,71 +1,76 @@
 /**
  * OneMap API Integration & Token Service
- * Handles OneMap token minting, caching, and tile proxy with fallback.
+ * Reads the OneMap API token directly from ONEMAP_API in Vercel / environment variables.
+ * Handles token sanitization, tile proxying, and fallback.
  */
 
 let cachedToken = null;
-let tokenExpiryTime = 0; // Epoch ms
+
+export function sanitizeToken(raw) {
+  if (!raw) return null;
+  let token = raw.trim();
+  // Strip outer quotes if accidentally pasted with quotes
+  token = token.replace(/^["']|["']$/g, '').trim();
+  // Strip Bearer prefix if accidentally included
+  token = token.replace(/^Bearer\s+/i, '').trim();
+  return token || null;
+}
 
 export async function getOneMapToken() {
-  const now = Date.now();
-  if (cachedToken && now < tokenExpiryTime - 60000) {
-    return cachedToken;
-  }
+  const envApi = process.env.ONEMAP_API;
+  const sanitized = sanitizeToken(envApi);
 
-  const envApi = process.env.ONEMAP_API?.trim();
-  const envEmail = process.env.ONEMAP_EMAIL?.trim();
-  const envPassword = process.env.ONEMAP_PASSWORD?.trim();
-
-  let email = null;
-  let password = null;
-
-  if (envApi) {
-    if (envApi.startsWith('{')) {
+  if (sanitized) {
+    // Check if it was entered as JSON {"email": "...", "password": "..."}
+    if (sanitized.startsWith('{')) {
       try {
-        const parsed = JSON.parse(envApi);
-        email = parsed.email;
-        password = parsed.password;
-      } catch (e) {
-        console.error('Failed to parse ONEMAP_API JSON:', e);
+        const parsed = JSON.parse(sanitized);
+        if (parsed.email && parsed.password) {
+          if (cachedToken) return cachedToken;
+          const res = await fetch('https://www.onemap.gov.sg/api/auth/post/getToken', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: parsed.email, password: parsed.password }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.access_token) {
+              cachedToken = data.access_token;
+              return cachedToken;
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to parse JSON ONEMAP_API credentials:', err);
       }
-    } else {
-      // Direct token string
-      cachedToken = envApi;
-      tokenExpiryTime = now + 3 * 24 * 3600 * 1000; // Assume 3 days
-      return cachedToken;
     }
+
+    // Direct token string
+    return sanitized;
   }
 
-  if (!email && envEmail) email = envEmail;
-  if (!password && envPassword) password = envPassword;
-
-  if (!email || !password) {
-    return null;
-  }
-
-  try {
-    const res = await fetch('https://www.onemap.gov.sg/api/auth/post/getToken', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ email, password }),
-    });
-
-    if (!res.ok) {
-      console.warn(`OneMap auth error ${res.status}: ${res.statusText}`);
-      return null;
+  // Also check ONEMAP_EMAIL and ONEMAP_PASSWORD if present
+  if (process.env.ONEMAP_EMAIL && process.env.ONEMAP_PASSWORD) {
+    if (cachedToken) return cachedToken;
+    try {
+      const res = await fetch('https://www.onemap.gov.sg/api/auth/post/getToken', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: process.env.ONEMAP_EMAIL.trim(),
+          password: process.env.ONEMAP_PASSWORD.trim(),
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.access_token) {
+          cachedToken = data.access_token;
+          return cachedToken;
+        }
+      }
+    } catch (err) {
+      console.warn('OneMap auto token fetch failed:', err);
     }
-
-    const data = await res.json();
-    if (data.access_token) {
-      cachedToken = data.access_token;
-      // Lasts 3 days (259200 seconds)
-      tokenExpiryTime = now + (data.expires_in ? data.expires_in * 1000 : 3 * 24 * 3600 * 1000);
-      return cachedToken;
-    }
-  } catch (err) {
-    console.error('OneMap token fetch failed:', err);
   }
 
   return null;
@@ -73,32 +78,41 @@ export async function getOneMapToken() {
 
 export async function handleTokenRequest(req, res) {
   const token = await getOneMapToken();
-  const isConfigured = Boolean(
-    process.env.ONEMAP_API || (process.env.ONEMAP_EMAIL && process.env.ONEMAP_PASSWORD)
-  );
+  const isConfigured = Boolean(process.env.ONEMAP_API || (process.env.ONEMAP_EMAIL && process.env.ONEMAP_PASSWORD));
 
   res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Cache-Control', 'no-cache');
   return res.json({
     configured: isConfigured,
     hasActiveToken: Boolean(token),
     token: token || null,
     provider: token ? 'onemap' : 'cartocdn_fallback',
-    expiry: token ? tokenExpiryTime : null,
     supportedStyles: ['Night', 'Default', 'Grey', 'Original'],
-    message: isConfigured
-      ? 'OneMap API authentication configured'
-      : 'OneMap API token pending. Add ONEMAP_API in environment variables. Using styled fallback tiles.',
+    message: token
+      ? 'OneMap API token active'
+      : 'OneMap API token pending. Add ONEMAP_API in Vercel environment variables.',
   });
 }
 
 export async function handleTileProxy(req, res) {
-  const { style = 'Night', z, x, y } = req.params;
+  // Support both Express req.params and Vercel req.query
+  const params = req.customParams || req.params || {};
+  const query = req.query || {};
+
+  const style = params.style || query.style || 'Night';
+  const z = params.z || query.z;
+  const x = params.x || query.x;
+  const y = params.y || query.y;
+
+  if (!z || !x || !y) {
+    return res.status(400).send('Missing tile coordinates (z, x, y)');
+  }
+
   const token = await getOneMapToken();
 
   if (token) {
-    // Attempt OneMap tile
+    // Attempt OneMap tile with Bearer token
     try {
-      // OneMap v2 standard style endpoint
       const oneMapUrl = `https://www.onemap.gov.sg/maps/service/styles/${style}/512/${z}/${x}/${y}.png`;
       const upstream = await fetch(oneMapUrl, {
         headers: {
@@ -111,10 +125,13 @@ export async function handleTileProxy(req, res) {
         const buffer = await upstream.arrayBuffer();
         res.setHeader('Content-Type', upstream.headers.get('content-type') || 'image/png');
         res.setHeader('Cache-Control', 'public, max-age=86400');
+        res.setHeader('X-Tile-Provider', 'onemap');
         return res.send(Buffer.from(buffer));
+      } else {
+        console.warn(`OneMap returned HTTP ${upstream.status} for tile, using styled fallback.`);
       }
     } catch (err) {
-      console.warn('Failed to fetch from OneMap tile service, falling back...', err);
+      console.warn('Failed to fetch from OneMap tile service, using fallback...', err);
     }
   }
 
@@ -140,4 +157,32 @@ export async function handleTileProxy(req, res) {
   }
 
   return res.status(404).send('Tile not found');
+}
+
+// Default export compatible with Vercel Serverless Functions
+export default async function onemapHandler(req, res) {
+  const url = req.url || '';
+  const query = req.query || {};
+
+  // Check if it's a token request
+  if (query.action === 'token' || url.includes('/token') || (!query.action && !url.includes('/tile'))) {
+    return handleTokenRequest(req, res);
+  }
+
+  // Tile request
+  if (query.action === 'tile' || url.includes('/tile')) {
+    // If url contains /tile/:style/:z/:x/:y
+    const tileMatch = url.match(/\/tile\/([^\/]+)\/([^\/]+)\/([^\/]+)\/([^\/]+)/);
+    if (tileMatch) {
+      req.customParams = {
+        style: tileMatch[1],
+        z: tileMatch[2],
+        x: tileMatch[3],
+        y: tileMatch[4].replace(/\.png$/, ''),
+      };
+    }
+    return handleTileProxy(req, res);
+  }
+
+  return handleTokenRequest(req, res);
 }

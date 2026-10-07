@@ -1,0 +1,25 @@
+{
+  "version": 2,
+  "rewrites": [
+    {
+      "source": "/api/health",
+      "destination": "/api/health.js"
+    },
+    {
+      "source": "/api/onemap/token",
+      "destination": "/api/onemap.js?action=token"
+    },
+    {
+      "source": "/api/onemap/tile/:style/:z/:x/:y",
+      "destination": "/api/onemap.js?action=tile&style=:style&z=:z&x=:x&y=:y"
+    },
+    {
+      "source": "/api/nea/:endpoint",
+      "destination": "/api/nea.js?endpoint=:endpoint"
+    },
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
+  ]
+}

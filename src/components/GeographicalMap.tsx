@@ -468,7 +468,7 @@ export const GeographicalMap: React.FC<GeographicalMapProps> = ({
           <span>
             {oneMapStatus?.hasActiveToken
               ? 'OneMap API: Connected (SLA Official Map Tiles)'
-              : 'OneMap API: Ready · Set ONEMAP_API in Vercel to mint SLA token'}
+              : 'OneMap API: Ready · Set ONEMAP_API in Vercel to activate official SLA tiles'}
           </span>
         </div>
 
